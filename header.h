@@ -16,15 +16,22 @@
 #include <arpa/inet.h>
 #include <pwd.h>
 #include <pcap.h>
-#include "ip.h"
 
-typedef struct ether_header{
+#pragma pack(push,1)
+typedef struct EthHdr{
     unsigned char dst_host[6];
     unsigned char src_host[6];
     unsigned short frame_type;
-}ether_header;
+}EthHdr;
 
-typedef struct ip_header{
+typedef struct ip_address {
+    unsigned char byte1;
+    unsigned char byte2;
+    unsigned char byte3;
+    unsigned char byte4;
+}Ip;
+
+typedef struct IpHdr{
     unsigned char ver_ihl;
     unsigned char tos;
     unsigned short tlen;
@@ -35,18 +42,18 @@ typedef struct ip_header{
     unsigned short chk;
     Ip sip;
     Ip dip;
-}ip_header;
+}IpHdr;
 
 
-typedef struct udp_header {
+typedef struct UdpHdr {
     unsigned short sport;
     unsigned short dport;
     unsigned short len;
     unsigned short chk;
-}udp_header;
+}UdpHdr;
 
 
-typedef struct dns_header{
+typedef struct DnsHdr{
     short ID;
 
     unsigned char RD : 1;
@@ -68,4 +75,5 @@ typedef struct dns_header{
 
     short TYPE;
     short CLASS;
-}dns_header;
+}DnsHdr;
+#pragma pack(pop)

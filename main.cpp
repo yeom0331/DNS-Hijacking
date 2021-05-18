@@ -1,12 +1,14 @@
+#include <iostream>
 #include "packet_handle.h"
+
+using namespace std;
 
 void usage() {
     std::cout << "Systex : Dns-Hijacking <file>\n";
     std::cout << "Sample : Dns-Hijacking hosts\n";
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     if(argc!=2) {
         usage();
         return -1;
@@ -43,6 +45,7 @@ int main(int argc, char **argv)
 
     printf("Select interface : ");
     scanf("%d", &i);
+    i--;
     for(d=alldevs; i>0; d=d->next, i--);
 
     pcap_t* handle = pcap_open_live(d->name, BUFSIZ, 1, 1000, errbuf);
@@ -63,12 +66,11 @@ int main(int argc, char **argv)
 
     while(1) {
         struct pcap_pkthdr *header;
-        const u_char *packet;
+        const unsigned char *packet;
         int res = pcap_next_ex(handle, &header, &packet);
         if(res > 0) {
             char *extract_domain = pkt.make_domain(header, packet);
             pkt.packet_handler(header, packet, extract_domain, domain_array, ip_array);
         }
     }
-
 }

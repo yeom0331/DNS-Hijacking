@@ -8,7 +8,7 @@ char* packet_handle::make_domain(struct pcap_pkthdr *header, const unsigned char
     char dns_data[1024];
     memset(dns_data, 0, 1024);
 
-    for(int i=0; i<header->len; i++) {
+    for(int i=0; i<header->caplen; i++) {
         dns_data[i] = (unsigned int)pkt_data[i+54];
     }
 
@@ -27,9 +27,9 @@ char* packet_handle::make_domain(struct pcap_pkthdr *header, const unsigned char
 }
 
 int packet_handle::packet_handler(struct pcap_pkthdr *header, const unsigned char *packet, char *extract_domain, std::vector<std::string> domain_array, std::vector<std::string> ip_array) {
-    ip_header *iph = (ip_header *)(packet + sizeof(ether_header));
-    udp_header *udph = (udp_header *)(packet + sizeof(ether_header) + sizeof(ip_header));
-    dns_header *dnsh = (dns_header *)(packet + 42);
+    IpHdr *iph = (IpHdr *)(packet + sizeof(EthHdr));
+    UdpHdr *udph = (UdpHdr *)(packet + sizeof(EthHdr) + sizeof(IpHdr));
+    DnsHdr *dnsh = (DnsHdr *)(packet + 42);
 
     if(compare_domain(extract_domain, domain_array)) {
         unsigned char dns_reply[1024];
@@ -38,7 +38,7 @@ int packet_handle::packet_handler(struct pcap_pkthdr *header, const unsigned cha
         int full_size;
 
         memset(dns_reply, 0 , 1024);
-        dns_reply_hdr = dns_reply + sizeof(ip_header) + sizeof(udp_header);
+        dns_reply_hdr = dns_reply + sizeof(IpHdr) + sizeof(UdpHdr);
 
         dns_reply_hdr[0] = dnsh->ID & 0xff; dns_reply_hdr[1] = (dnsh->ID >> 8) & 0xff; //ID
         dns_reply_hdr[2] = 0x80; dns_reply_hdr[3] = 0x00; //flags
@@ -58,7 +58,8 @@ int packet_handle::packet_handler(struct pcap_pkthdr *header, const unsigned cha
         dns_reply_hdr[name_size+16] = 0xc0; dns_reply_hdr[name_size+17] = 0x0c; //Name
         dns_reply_hdr[name_size+18] = 0x00; dns_reply_hdr[name_size+19] = 0x01; //Type A
         dns_reply_hdr[name_size+20] = 0x00; dns_reply_hdr[name_size+21] = 0x01; //Class IN
-        dns_reply_hdr[name_size+22] = 0x00; dns_reply_hdr[name_size+23] = 0x00; dns_reply_hdr[name_size+24] = 0x00; dns_reply_hdr[name_size+25] = 0x34; //TTL
+        dns_reply_hdr[name_size+22] = 0x00; dns_reply_hdr[name_size+23] = 0x00;
+        dns_reply_hdr[name_size+24] = 0x00; dns_reply_hdr[name_size+25] = 0x34; //TTL
         dns_reply_hdr[name_size+26] = 0x00; dns_reply_hdr[name_size+27] = 0x04; //Rdata_len
 
         for(int i=0; i<domain_array.size(); i++) {
@@ -73,39 +74,42 @@ int packet_handle::packet_handler(struct pcap_pkthdr *header, const unsigned cha
 
         full_size = name_size + 32; //except namesize dns header
 
-        iph->tlen = htons(sizeof(ip_header) + sizeof(udp_header) + full_size);
+        iph->tlen = htons(sizeof(IpHdr) + sizeof(UdpHdr) + full_size);
 
-        //change sender <-> target
-        Ip temp = Ip(htonl(iph->dip));
-        iph->dip = Ip(htonl(iph->sip));
-        iph->sip = Ip(htonl(temp));
+        //change sender <-> target setting ip, udp packet
+        Ip temp = iph->dip;
+        iph->dip = iph->sip;
+        iph->sip = temp;
 
         int temp_port = udph->sport;
         udph->sport = htons(53);
         udph->dport = temp_port;
-        udph->len = htons(sizeof(udp_header)+full_size);
+        udph->len = htons(sizeof(UdpHdr)+full_size);
         udph->chk = 0; //ipv4 non-checksum
 
-        memcpy(&dns_reply[0], (char*)iph, sizeof(ip_header));
-        memcpy(&dns_reply[sizeof(ip_header)], (char*)udph, sizeof(udp_header));
+        memcpy(&dns_reply[0], (char*)iph, sizeof(IpHdr));
+        memcpy(&dns_reply[sizeof(IpHdr)], (char*)udph, sizeof(UdpHdr));
 
-        Ip target_ip = Ip(htonl(iph->dip));
+        char target_ip[16];
+        snprintf(target_ip, sizeof(target_ip), "%d.%d.%d.%d", iph->dip.byte1, iph->dip.byte2, iph->dip.byte3, iph->dip.byte4);
 
-        full_size = full_size + sizeof(ip_header) + sizeof(udp_header);
+        full_size = full_size + sizeof(IpHdr) + sizeof(UdpHdr);
 
         if(send_dns_packet(target_ip, udph->dport, dns_reply, full_size) > 0) {
             printf("sending dns reply && Original Site: %s\n", extract_domain);
         }
     }
+    return 0;
 }
 
-int packet_handle::send_dns_packet(Ip target_ip, int port, unsigned char *dns_packet, int size) {
+int packet_handle::send_dns_packet(char *target_ip, int port, unsigned char *dns_packet, int size) {
     struct sockaddr_in serv_addr;
     int tmp = 1, s = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(port);
 
-    inet_pton(AF_INET, (char*)&target_ip, &(serv_addr.sin_addr));
+    inet_pton(AF_INET, target_ip, &(serv_addr.sin_addr));
     if(setsockopt(s, IPPROTO_IP, IP_HDRINCL, &tmp, sizeof(tmp))<0) {
         printf("setsockopt error\n");
         return -1;
